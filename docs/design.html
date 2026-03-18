@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NA-EU 跨区域数据双向同步 — 技术设计文档</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card: #ffffff;
+    --primary: #1a56db;
+    --primary-light: #e8effc;
+    --accent: #059669;
+    --accent-light: #d1fae5;
+    --warn: #d97706;
+    --warn-light: #fef3c7;
+    --danger: #dc2626;
+    --danger-light: #fee2e2;
+    --text: #1f2937;
+    --text-light: #6b7280;
+    --border: #e5e7eb;
+    --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.7;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+
+  /* Header */
+  .hero {
+    background: linear-gradient(135deg, #1e3a5f 0%, #1a56db 50%, #3b82f6 100%);
+    color: #fff; padding: 60px 24px; text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: 12px; }
+  .hero .subtitle { font-size: 1.15rem; opacity: .85; }
+  .hero .meta { margin-top: 20px; font-size: .9rem; opacity: .7; }
+
+  /* Sections */
+  .section { margin-bottom: 48px; }
+  .section h2 {
+    font-size: 1.6rem; font-weight: 700; color: var(--primary);
+    border-bottom: 3px solid var(--primary); padding-bottom: 8px; margin-bottom: 24px;
+  }
+  .section h3 { font-size: 1.2rem; font-weight: 600; margin: 20px 0 12px; color: var(--text); }
+
+  /* Cards */
+  .card {
+    background: var(--card); border-radius: 12px; padding: 28px;
+    box-shadow: var(--shadow); margin-bottom: 24px; border: 1px solid var(--border);
+  }
+  .card-title {
+    font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; color: var(--primary);
+  }
+
+  /* Two columns */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: .92rem; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--primary-light); font-weight: 600; color: var(--primary); }
+  tr:hover td { background: #f1f5f9; }
+
+  /* Badges */
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: .78rem; font-weight: 600;
+  }
+  .badge-na { background: #dbeafe; color: #1e40af; }
+  .badge-eu { background: #d1fae5; color: #065f46; }
+  .badge-mm2 { background: #fef3c7; color: #92400e; }
+  .badge-tech { background: #e0e7ff; color: #3730a3; }
+
+  /* Diagrams */
+  .diagram-container {
+    background: var(--card); border-radius: 12px; padding: 24px;
+    box-shadow: var(--shadow); margin: 20px 0; border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .diagram-container .mermaid { display: flex; justify-content: center; }
+  .diagram-label {
+    text-align: center; font-size: .88rem; color: var(--text-light);
+    margin-top: 12px; font-style: italic;
+  }
+
+  /* Component grid */
+  .comp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .comp-item {
+    background: var(--card); border-radius: 10px; padding: 18px;
+    border-left: 4px solid var(--primary); box-shadow: var(--shadow);
+  }
+  .comp-item.eu { border-left-color: var(--accent); }
+  .comp-item.mm2 { border-left-color: var(--warn); }
+  .comp-item h4 { font-size: .95rem; margin-bottom: 6px; }
+  .comp-item p { font-size: .82rem; color: var(--text-light); }
+
+  /* Flow steps */
+  .flow-steps { counter-reset: step; }
+  .flow-step {
+    position: relative; padding: 16px 16px 16px 56px; margin-bottom: 12px;
+    background: var(--card); border-radius: 10px; box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .flow-step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 16px; top: 16px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: .85rem;
+  }
+  .flow-step strong { color: var(--primary); }
+
+  /* Highlight boxes */
+  .highlight-box {
+    padding: 16px 20px; border-radius: 10px; margin: 16px 0;
+    font-size: .92rem;
+  }
+  .highlight-box.info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+  .highlight-box.success { background: var(--accent-light); border-left: 4px solid var(--accent); }
+  .highlight-box.warn { background: var(--warn-light); border-left: 4px solid var(--warn); }
+  .highlight-box.danger { background: var(--danger-light); border-left: 4px solid var(--danger); }
+
+  /* Code */
+  code {
+    background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", monospace; font-size: .85em;
+  }
+  pre {
+    background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 10px;
+    overflow-x: auto; font-size: .85rem; line-height: 1.6; margin: 12px 0;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* TOC */
+  .toc { background: var(--card); border-radius: 12px; padding: 24px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+  .toc h3 { margin-bottom: 12px; color: var(--primary); }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--primary); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 32px; color: var(--text-light); font-size: .85rem; border-top: 1px solid var(--border); margin-top: 40px; }
+
+  /* Print */
+  @media print {
+    .hero { padding: 30px; }
+    .container { padding: 20px; }
+    .card, .diagram-container, .flow-step, .comp-item { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>NA - EU 跨区域数据双向同步</h1>
+  <div class="subtitle">基于 Debezium CDC + Kafka + MirrorMaker 2 的实时数据同步方案</div>
+  <div class="meta">Region Sync Service &nbsp;|&nbsp; 技术设计文档 &nbsp;|&nbsp; v1.0</div>
+</div>
+
+<div class="container">
+
+<!-- ==================== TOC ==================== -->
+<div class="toc">
+  <h3>目录</h3>
+  <ol>
+    <li><a href="#s1">项目背景与目标</a></li>
+    <li><a href="#s2">整体架构</a></li>
+    <li><a href="#s3">组件清单与职责</a></li>
+    <li><a href="#s4">数据流详解</a></li>
+    <li><a href="#s5">MirrorMaker 2 跨区域镜像</a></li>
+    <li><a href="#s6">冲突解决策略</a></li>
+    <li><a href="#s7">防回环机制</a></li>
+    <li><a href="#s8">同步表与配置</a></li>
+    <li><a href="#s9">端口与服务映射</a></li>
+    <li><a href="#s10">运维与监控</a></li>
+    <li><a href="#s11">技术栈总览</a></li>
+    <li><a href="#s12">生产部署架构</a></li>
+  </ol>
+</div>
+
+<!-- ==================== 1. 背景 ==================== -->
+<div class="section" id="s1">
+  <h2>1. 项目背景与目标</h2>
+  <div class="card">
+    <p>公司业务覆盖 <span class="badge badge-na">NA 北美</span> 和 <span class="badge badge-eu">EU 欧洲</span> 两个区域，各区域独立部署数据库（MySQL）。
+      为实现<strong>全球数据一致性</strong>，需要将两个区域的核心业务数据进行<strong>准实时双向同步</strong>。</p>
+    <h3>核心目标</h3>
+    <table>
+      <tr><th>目标</th><th>说明</th></tr>
+      <tr><td>准实时同步</td><td>数据变更秒级到达对端区域，延迟 &lt; 5 秒（网络正常时）</td></tr>
+      <tr><td>双向同步</td><td>NA 和 EU 任一侧的变更都能同步到对端</td></tr>
+      <tr><td>冲突解决</td><td>同一记录在两侧同时修改时，按 <strong>Last Write Wins + 区域优先级</strong> 策略自动解决</td></tr>
+      <tr><td>防回环</td><td>A→B 的同步写入不会被 B 的 CDC 再次捕获回传给 A</td></tr>
+      <tr><td>通用化</td><td>新增同步表只需添加配置，无需编码</td></tr>
+      <tr><td>高可用</td><td>各组件可独立水平扩展，单组件故障不影响全局</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== 2. 整体架构 ==================== -->
+<div class="section" id="s2">
+  <h2>2. 整体架构</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TB
+    subgraph NA_Region ["NA Region"]
+        NA_App["Business App NA"]
+        NA_DB[("MySQL\napn_na")]
+        NA_Debezium["Debezium\nConnector"]
+        NA_Kafka["Kafka NA"]
+        NA_MM2["MirrorMaker 2\n(EU->NA)"]
+        NA_Sync["Sync Service\n(profile=na)"]
+
+        NA_App -->|"read/write"| NA_DB
+        NA_DB -->|"binlog"| NA_Debezium
+        NA_Debezium -->|"na.apn_na.*"| NA_Kafka
+        NA_MM2 -->|"eu.apn_eu.*"| NA_Kafka
+        NA_Kafka -->|"consume eu.apn_eu.*"| NA_Sync
+        NA_Sync -->|"write"| NA_DB
+    end
+
+    subgraph EU_Region ["EU Region"]
+        EU_App["Business App EU"]
+        EU_DB[("MySQL\napn_eu")]
+        EU_Debezium["Debezium\nConnector"]
+        EU_Kafka["Kafka EU"]
+        EU_MM2["MirrorMaker 2\n(NA->EU)"]
+        EU_Sync["Sync Service\n(profile=eu)"]
+
+        EU_App -->|"read/write"| EU_DB
+        EU_DB -->|"binlog"| EU_Debezium
+        EU_Debezium -->|"eu.apn_eu.*"| EU_Kafka
+        EU_MM2 -->|"na.apn_na.*"| EU_Kafka
+        EU_Kafka -->|"consume na.apn_na.*"| EU_Sync
+        EU_Sync -->|"write"| EU_DB
+    end
+
+    EU_Kafka -.->|"mirror eu topics"| NA_MM2
+    NA_Kafka -.->|"mirror na topics"| EU_MM2
+    </div>
+    <div class="diagram-label">图 1：NA-EU 双区域整体架构</div>
+  </div>
+</div>
+
+<!-- ==================== 3. 组件清单 ==================== -->
+<div class="section" id="s3">
+  <h2>3. 组件清单与职责</h2>
+
+  <div class="comp-grid">
+    <div class="comp-item">
+      <h4>MySQL NA / EU</h4>
+      <p>各区域的主数据库，开启 ROW 格式 binlog + GTID，为 CDC 提供数据源。</p>
+    </div>
+    <div class="comp-item">
+      <h4>Debezium Connector</h4>
+      <p>部署在 Kafka Connect 上，实时捕获 MySQL binlog 变更，写入本区域 Kafka。</p>
+    </div>
+    <div class="comp-item">
+      <h4>Kafka NA / EU</h4>
+      <p>各区域独立 Kafka 集群，存储本地 CDC topic 和从对端镜像来的 topic。</p>
+    </div>
+    <div class="comp-item mm2">
+      <h4>MirrorMaker 2</h4>
+      <p>跨区域 topic 镜像。部署在<strong>目标区域</strong>，从远端拉取 CDC topic 到本地 Kafka。</p>
+    </div>
+    <div class="comp-item eu">
+      <h4>Sync Service</h4>
+      <p>Spring Boot 应用，消费本地 Kafka 中来自对端的 CDC topic，写入本地 MySQL。</p>
+    </div>
+    <div class="comp-item">
+      <h4>Kafka Connect</h4>
+      <p>每个区域部署一个 Connect 实例，运行本区域的 Debezium Source Connector。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 4. 数据流 ==================== -->
+<div class="section" id="s4">
+  <h2>4. 数据流详解</h2>
+
+  <div class="card">
+    <div class="card-title">场景：NA 的一条 talent 记录变更同步到 EU</div>
+    <div class="flow-steps">
+      <div class="flow-step"><strong>业务写入</strong> — NA 业务应用修改 <code>apn_na.talent</code> 表中 id=100 的记录</div>
+      <div class="flow-step"><strong>Binlog 捕获</strong> — MySQL NA 产生 binlog 事件 (ROW 格式, FULL image)</div>
+      <div class="flow-step"><strong>Debezium CDC</strong> — <code>na-source-connector</code> 读取 binlog，将变更事件写入 NA Kafka topic <code>na.apn_na.talent</code></div>
+      <div class="flow-step"><strong>MM2 镜像</strong> — 部署在 EU 的 MirrorMaker 2 从 NA Kafka 拉取 <code>na.apn_na.talent</code>，镜像到 EU Kafka（保持同名 topic）</div>
+      <div class="flow-step"><strong>Sync 消费</strong> — EU 的 <code>sync-service-eu</code> 从 EU Kafka 消费 <code>na.apn_na.talent</code> topic</div>
+      <div class="flow-step"><strong>解析 CDC</strong> — <code>GenericCdcConsumer</code> 解析 Debezium envelope，提取 op 和 after 数据</div>
+      <div class="flow-step"><strong>防回环检查</strong> — 检查 <code>source_region</code> 字段，确认非本地区域（EU）产生的数据</div>
+      <div class="flow-step"><strong>冲突检测</strong> — 若为 UPDATE，比较本地与远端 <code>updated_at</code> 时间戳</div>
+      <div class="flow-step"><strong>写入本地</strong> — 通过 <code>INSERT ... ON DUPLICATE KEY UPDATE</code> 写入 <code>apn_eu.talent</code></div>
+    </div>
+  </div>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+sequenceDiagram
+    participant App as Business App (NA)
+    participant DB_NA as MySQL NA
+    participant Deb as Debezium NA
+    participant K_NA as Kafka NA
+    participant MM2 as MM2 (in EU)
+    participant K_EU as Kafka EU
+    participant Sync as Sync Service EU
+    participant DB_EU as MySQL EU
+
+    App->>DB_NA: UPDATE talent SET name='...'
+    DB_NA-->>Deb: binlog event
+    Deb->>K_NA: na.apn_na.talent (op=u)
+    MM2->>K_NA: poll topics
+    K_NA-->>MM2: na.apn_na.talent message
+    MM2->>K_EU: mirror na.apn_na.talent
+    Sync->>K_EU: consume na.apn_na.talent
+    K_EU-->>Sync: CDC event (op=u)
+    Note over Sync: Anti-loop check
+    Note over Sync: Conflict resolution
+    Sync->>DB_EU: UPSERT into apn_eu.talent
+    </div>
+    <div class="diagram-label">图 2：NA 变更同步到 EU 的时序图</div>
+  </div>
+</div>
+
+<!-- ==================== 5. MM2 ==================== -->
+<div class="section" id="s5">
+  <h2>5. MirrorMaker 2 跨区域镜像</h2>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title"><span class="badge badge-na">NA 侧 MM2</span></div>
+      <table>
+        <tr><th>配置项</th><th>值</th></tr>
+        <tr><td>部署位置</td><td>NA 区域</td></tr>
+        <tr><td>镜像方向</td><td>EU Kafka → NA Kafka</td></tr>
+        <tr><td>镜像 Topic</td><td><code>eu\.apn_eu\..*</code></td></tr>
+        <tr><td>Replication Policy</td><td>IdentityReplicationPolicy</td></tr>
+      </table>
+      <p style="margin-top:10px; font-size:.88rem; color:var(--text-light)">
+        从 EU Kafka 拉取所有 <code>eu.apn_eu.*</code> topic，写入 NA Kafka，保持 topic 名不变。
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="badge badge-eu">EU 侧 MM2</span></div>
+      <table>
+        <tr><th>配置项</th><th>值</th></tr>
+        <tr><td>部署位置</td><td>EU 区域</td></tr>
+        <tr><td>镜像方向</td><td>NA Kafka → EU Kafka</td></tr>
+        <tr><td>镜像 Topic</td><td><code>na\.apn_na\..*</code></td></tr>
+        <tr><td>Replication Policy</td><td>IdentityReplicationPolicy</td></tr>
+      </table>
+      <p style="margin-top:10px; font-size:.88rem; color:var(--text-light)">
+        从 NA Kafka 拉取所有 <code>na.apn_na.*</code> topic，写入 EU Kafka，保持 topic 名不变。
+      </p>
+    </div>
+  </div>
+
+  <div class="highlight-box info">
+    <strong>为什么 MM2 部署在目标区域？</strong><br>
+    写入本地 Kafka 延迟低、可靠性高；跨区域网络只用于拉取（读），写入（写）完全在本地完成。网络中断时本地 Kafka 不受影响，恢复后 MM2 自动从上次 offset 追赶。
+  </div>
+
+  <div class="highlight-box warn">
+    <strong>IdentityReplicationPolicy</strong><br>
+    使用此策略后，镜像 topic 保持原名（如 <code>na.apn_na.talent</code>），Sync Service 的 topic-prefix 配置无需因 MM2 而改动。
+  </div>
+
+  <h3>生产环境 vs 本地开发部署策略</h3>
+  <div class="card">
+    <table>
+      <tr><th>维度</th><th>生产环境</th><th>本地开发</th></tr>
+      <tr>
+        <td><strong>MM2 数量</strong></td>
+        <td><span class="badge badge-na">2 个</span> — 每个区域各 1 个</td>
+        <td><span class="badge badge-eu">1 个</span> — 单实例双向镜像</td>
+      </tr>
+      <tr>
+        <td>部署位置</td>
+        <td>各自部署在目标区域（就近写入）</td>
+        <td>同一 Docker 网络</td>
+      </tr>
+      <tr>
+        <td>故障隔离</td>
+        <td>一个 MM2 故障仅影响单方向</td>
+        <td>单点故障影响双向</td>
+      </tr>
+      <tr>
+        <td>独立扩展</td>
+        <td>可按方向独立调整 tasks.max</td>
+        <td>不需要</td>
+      </tr>
+      <tr>
+        <td>Worker Group</td>
+        <td>各 MM2 的内部 topic 存在不同 Kafka 集群，天然隔离</td>
+        <td>同网络下会共享 group，必须合并为 1 个以避免 rebalance 冲突</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="highlight-box success">
+    <strong>生产环境用 2 个 MM2 的三大理由：</strong><br>
+    <strong>① 故障隔离</strong> — 一个区域宕机不影响另一方向的镜像<br>
+    <strong>② 就近写入</strong> — MM2 写入目标 Kafka 走本地网络，延迟低、可靠性高<br>
+    <strong>③ 运维独立</strong> — 各区域团队可独立管理、升级、扩容自己的 MM2
+  </div>
+</div>
+
+<!-- ==================== 6. 冲突解决 ==================== -->
+<div class="section" id="s6">
+  <h2>6. 冲突解决策略</h2>
+
+  <div class="card">
+    <p>当同一条记录在 NA 和 EU 被同时修改时，使用 <strong>Last Write Wins (LWW)</strong> + <strong>区域优先级 Tie-break</strong> 策略：</p>
+
+    <div class="diagram-container" style="box-shadow:none; border:none; padding:12px;">
+      <div class="mermaid">
+flowchart TD
+    Start["收到远端 UPDATE 事件"] --> GetTS["提取远端 updated_at 时间戳"]
+    GetTS --> QueryLocal["查询本地同一记录的 updated_at"]
+    QueryLocal --> NotFound{本地记录存在?}
+    NotFound -->|"不存在"| DoSync["执行同步 (当 INSERT 处理)"]
+    NotFound -->|"存在"| Compare{"比较时间戳"}
+    Compare -->|"远端 > 本地"| DoSync
+    Compare -->|"本地 > 远端"| Skip["跳过 (本地胜出)"]
+    Compare -->|"相等"| TieBreak{"优先区域\n= 远端区域?"}
+    TieBreak -->|"是"| DoSync
+    TieBreak -->|"否"| Skip
+      </div>
+    </div>
+    <div class="diagram-label">图 3：冲突解决流程</div>
+
+    <table>
+      <tr><th>场景</th><th>判定</th><th>结果</th></tr>
+      <tr><td>远端时间戳 &gt; 本地时间戳</td><td>远端胜出</td><td>执行同步写入</td></tr>
+      <tr><td>本地时间戳 &gt; 远端时间戳</td><td>本地胜出</td><td>跳过</td></tr>
+      <tr><td>时间戳相同，优先区域 = NA</td><td>NA 胜出</td><td>若远端为 NA 则同步，否则跳过</td></tr>
+      <tr><td>本地不存在该记录</td><td>—</td><td>当 INSERT 处理</td></tr>
+    </table>
+
+    <div class="highlight-box success">
+      默认优先区域配置为 <code>priority-region: NA</code>，可在 <code>application.yml</code> 中修改。
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 7. 防回环 ==================== -->
+<div class="section" id="s7">
+  <h2>7. 防回环机制</h2>
+
+  <div class="card">
+    <p>双向同步的核心难题是<strong>回环</strong>：A 的变更同步到 B，B 的 CDC 会再次捕获该变更，又同步回 A，形成死循环。</p>
+
+    <div class="diagram-container" style="box-shadow:none; border:none; padding:12px;">
+      <div class="mermaid">
+flowchart LR
+    subgraph NoLoop ["防回环示意"]
+        NA_Write["NA 修改 talent\nsource_region=NA"] -->|"CDC"| EU_Sync["EU Sync Service"]
+        EU_Sync -->|"写入 EU DB\nsource_region=NA"| EU_DB["EU MySQL"]
+        EU_DB -->|"CDC 捕获"| EU_CDC["EU Debezium"]
+        EU_CDC -->|"source_region=NA"| NA_Sync["NA Sync Service"]
+        NA_Sync -->|"source_region=NA\n== localRegion(NA)\nSKIP!"| Dropped["丢弃,不写入"]
+    end
+      </div>
+    </div>
+    <div class="diagram-label">图 4：防回环机制 — source_region 标记</div>
+
+    <h3>实现原理</h3>
+    <p>每张表都有 <code>source_region</code> 字段，标记该记录<strong>最初在哪个区域产生</strong>。</p>
+    <ol style="padding-left: 20px; margin-top: 8px;">
+      <li>NA 业务写入记录时，<code>source_region</code> 默认为 <code>'NA'</code></li>
+      <li>该变更通过 CDC + MM2 到达 EU Sync Service</li>
+      <li>EU Sync Service 将数据写入 EU MySQL，<strong>保持 <code>source_region='NA'</code> 不变</strong></li>
+      <li>EU Debezium 捕获这次写入，CDC 事件中 <code>source_region='NA'</code></li>
+      <li>NA Sync Service 收到后，检查 <code>source_region == localRegion(NA)</code>，<strong>判定为回环，跳过</strong></li>
+    </ol>
+  </div>
+</div>
+
+<!-- ==================== 8. 同步表 ==================== -->
+<div class="section" id="s8">
+  <h2>8. 同步表与配置</h2>
+
+  <div class="card">
+    <div class="card-title">当前同步的表（28 张）</div>
+    <table>
+      <tr><th>模块</th><th>表名</th><th>时间戳字段</th></tr>
+      <tr><td rowspan="8">Talent</td><td>talent</td><td>updated_at</td></tr>
+      <tr><td>talent_contact</td><td>last_modified_date</td></tr>
+      <tr><td>talent_experience</td><td>last_modified_date</td></tr>
+      <tr><td>talent_education</td><td>last_modified_date</td></tr>
+      <tr><td>talent_project</td><td>updated_at</td></tr>
+      <tr><td>talent_skill</td><td>updated_at</td></tr>
+      <tr><td>talent_ownership</td><td>last_modified_date</td></tr>
+      <tr><td>talent_preference</td><td>updated_at</td></tr>
+      <tr><td rowspan="2">Company</td><td>company</td><td>updated_at</td></tr>
+      <tr><td>company_contact</td><td>updated_at</td></tr>
+      <tr><td rowspan="5">Job</td><td>shared_job</td><td>updated_at</td></tr>
+      <tr><td>job</td><td>updated_at</td></tr>
+      <tr><td>job_candidate</td><td>updated_at</td></tr>
+      <tr><td>job_activity</td><td>updated_at</td></tr>
+      <tr><td>job_note</td><td>updated_at</td></tr>
+      <tr><td rowspan="3">Interview</td><td>interview</td><td>updated_at</td></tr>
+      <tr><td>interview_feedback</td><td>updated_at</td></tr>
+      <tr><td>offer</td><td>updated_at</td></tr>
+      <tr><td rowspan="2">Placement</td><td>placement</td><td>updated_at</td></tr>
+      <tr><td>invoice</td><td>updated_at</td></tr>
+      <tr><td rowspan="3">Client/Sales</td><td>client</td><td>updated_at</td></tr>
+      <tr><td>client_contact</td><td>updated_at</td></tr>
+      <tr><td>sales_lead</td><td>updated_at</td></tr>
+      <tr><td></td><td>sales_lead_project_relation</td><td>updated_at</td></tr>
+      <tr><td rowspan="4">System</td><td>notification</td><td>updated_at</td></tr>
+      <tr><td>user</td><td>updated_at</td></tr>
+      <tr><td>user_role</td><td>updated_at</td></tr>
+      <tr><td>user_permission</td><td>updated_at</td></tr>
+    </table>
+
+    <div class="highlight-box info">
+      <strong>新增同步表只需 2 步：</strong><br>
+      1. 确保表有 <code>id</code>、<code>source_region</code>、<code>updated_at</code> 字段<br>
+      2. 在 <code>application.yml</code> 的 <code>sync-tables</code> 列表中添加表名
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 9. 端口映射 ==================== -->
+<div class="section" id="s9">
+  <h2>9. 端口与服务映射</h2>
+
+  <h3>本地开发环境（Docker Compose）</h3>
+  <div class="card">
+    <table>
+      <tr><th>服务</th><th>容器名</th><th>主机端口</th><th>说明</th></tr>
+      <tr><td>MySQL NA</td><td>mysql-na</td><td>3307</td><td>NA 区域数据库 (apn_na)</td></tr>
+      <tr><td>MySQL EU</td><td>mysql-eu</td><td>3308</td><td>EU 区域数据库 (apn_eu)</td></tr>
+      <tr><td>Kafka NA</td><td>kafka-na</td><td>9092</td><td>NA 区域 Kafka (KRaft, 无 ZooKeeper)</td></tr>
+      <tr><td>Kafka EU</td><td>kafka-eu</td><td>9093</td><td>EU 区域 Kafka (KRaft, 无 ZooKeeper)</td></tr>
+      <tr><td>Kafka Connect NA</td><td>kafka-connect-na</td><td>8083</td><td>Debezium na-source-connector</td></tr>
+      <tr><td>Kafka Connect EU</td><td>kafka-connect-eu</td><td>8084</td><td>Debezium eu-source-connector</td></tr>
+      <tr><td>MirrorMaker 2</td><td>mm2</td><td>—</td><td>双向镜像（本地合并为单实例）</td></tr>
+    </table>
+    <p style="margin-top:12px; font-size:.88rem; color:var(--text-light)">
+      共 7 个 Docker 容器 + 2 个 IDEA 本地运行的 Sync Service 实例（profile=na / profile=eu）。
+    </p>
+  </div>
+
+  <h3>IDEA 本地启动 Sync Service</h3>
+  <div class="card">
+    <table>
+      <tr><th>实例</th><th>Active Profile</th><th>Kafka</th><th>MySQL</th><th>消费 Topic</th></tr>
+      <tr><td>Sync Service NA</td><td><code>na</code></td><td>localhost:9092</td><td>localhost:3307 / apn_na</td><td><code>eu.apn_eu.*</code></td></tr>
+      <tr><td>Sync Service EU</td><td><code>eu</code></td><td>localhost:9093</td><td>localhost:3308 / apn_eu</td><td><code>na.apn_na.*</code></td></tr>
+    </table>
+  </div>
+
+  <div class="highlight-box warn">
+    <strong>本地 vs 生产 MM2 差异：</strong>本地开发使用 1 个 MM2 实例处理双向镜像（同一 Docker 网络下避免 Worker Group 冲突）；生产环境使用 2 个 MM2 实例，分别部署在各自区域。
+  </div>
+</div>
+
+<!-- ==================== 10. 运维监控 ==================== -->
+<div class="section" id="s10">
+  <h2>10. 运维与监控</h2>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">健康检查</div>
+      <pre><code># Sync Service 健康检查
+GET http://localhost:9091/actuator/health
+GET http://localhost:9094/actuator/health
+
+# Kafka Connect 状态
+GET http://localhost:8083/connectors/na-source-connector/status
+GET http://localhost:8084/connectors/eu-source-connector/status</code></pre>
+    </div>
+    <div class="card">
+      <div class="card-title">关键监控指标</div>
+      <table>
+        <tr><th>指标</th><th>来源</th></tr>
+        <tr><td>Consumer Lag</td><td>Kafka consumer group offset</td></tr>
+        <tr><td>CDC 延迟</td><td>Debezium source connector metrics</td></tr>
+        <tr><td>MM2 镜像延迟</td><td>MirrorMaker 2 checkpoint lag</td></tr>
+        <tr><td>冲突次数</td><td>Sync Service 日志 (Conflict)</td></tr>
+        <tr><td>回环跳过次数</td><td>Sync Service 日志 (Anti-loop)</td></tr>
+        <tr><td>同步失败数</td><td>Sync Service ERROR 日志</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="highlight-box warn">
+    <strong>故障恢复：</strong>当跨区域网络中断时，MM2 会暂停拉取但不丢数据。恢复后 MM2 自动从上次 offset 开始追赶，Sync Service 继续正常消费。
+  </div>
+</div>
+
+<!-- ==================== 11. 技术栈 ==================== -->
+<div class="section" id="s11">
+  <h2>11. 技术栈总览</h2>
+
+  <div class="card">
+    <table>
+      <tr><th>层</th><th>技术</th><th>版本</th><th>用途</th></tr>
+      <tr>
+        <td>应用</td>
+        <td><span class="badge badge-tech">Spring Boot</span></td>
+        <td>2.7.18</td>
+        <td>Sync Service 框架</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td><span class="badge badge-tech">Spring Kafka</span></td>
+        <td>2.8.x</td>
+        <td>Kafka 消费者</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td><span class="badge badge-tech">Spring JDBC</span></td>
+        <td>—</td>
+        <td>数据库操作</td>
+      </tr>
+      <tr>
+        <td>CDC</td>
+        <td><span class="badge badge-tech">Debezium</span></td>
+        <td>2.5</td>
+        <td>MySQL binlog 变更捕获（运行于 Kafka Connect）</td>
+      </tr>
+      <tr>
+        <td>消息</td>
+        <td><span class="badge badge-tech">Apache Kafka</span></td>
+        <td>4.0.0</td>
+        <td>事件流平台（KRaft 模式，无 ZooKeeper）</td>
+      </tr>
+      <tr>
+        <td>镜像</td>
+        <td><span class="badge badge-mm2">MirrorMaker 2</span></td>
+        <td>4.0.0</td>
+        <td>跨区域 topic 双向镜像</td>
+      </tr>
+      <tr>
+        <td>数据库</td>
+        <td><span class="badge badge-tech">MySQL</span></td>
+        <td>8.0</td>
+        <td>业务数据存储（ROW binlog + GTID）</td>
+      </tr>
+      <tr>
+        <td>运行时</td>
+        <td><span class="badge badge-tech">Java</span></td>
+        <td>17</td>
+        <td>JDK (Eclipse Temurin)</td>
+      </tr>
+      <tr>
+        <td>构建</td>
+        <td><span class="badge badge-tech">Maven</span></td>
+        <td>3.9</td>
+        <td>项目构建</td>
+      </tr>
+      <tr>
+        <td>容器</td>
+        <td><span class="badge badge-tech">Docker Compose</span></td>
+        <td>v2</td>
+        <td>本地开发环境编排</td>
+      </tr>
+    </table>
+
+    <div class="highlight-box success" style="margin-top:16px;">
+      <strong>Kafka 4.0 亮点：</strong><br>
+      ✓ KRaft 模式 — 移除 ZooKeeper 依赖，减少运维组件<br>
+      ✓ 更快的 controller 故障切换（秒级 vs ZK 模式的分钟级）<br>
+      ✓ MM2 dedicated mode 支持内部 REST 通信（<code>dedicated.mode.enable.internal.rest=true</code>）
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 12. 生产部署架构 ==================== -->
+<div class="section" id="s12">
+  <h2>12. 生产部署架构</h2>
+
+  <p>整体架构见第 2 节。生产环境采用 <strong>Kafka 4.0 KRaft 模式</strong>，无需 ZooKeeper。NA 和 EU 两个区域各部署一套完全对称的组件。</p>
+
+  <h3>每个区域部署的组件与数量</h3>
+  <div class="card">
+    <table>
+      <tr><th>组件</th><th>每区域数量</th><th>职责</th></tr>
+      <tr>
+        <td><strong>MySQL</strong></td>
+        <td>1 台（主库）</td>
+        <td>业务数据存储，开启 ROW 格式 binlog + GTID，供业务应用读写，同时供 Debezium 捕获变更</td>
+      </tr>
+      <tr>
+        <td><strong>Kafka Broker</strong></td>
+        <td>3 台</td>
+        <td>KRaft 模式运行（无 ZooKeeper），3 节点同时承担 controller + broker 角色，保证消息三副本冗余和选举共识</td>
+      </tr>
+      <tr>
+        <td><strong>Kafka Connect<br>(Debezium)</strong></td>
+        <td>1 台</td>
+        <td>运行 Debezium Source Connector，实时读取 MySQL binlog 并将 CDC 事件写入本地 Kafka</td>
+      </tr>
+      <tr>
+        <td><strong>MirrorMaker 2</strong></td>
+        <td>1 台</td>
+        <td>部署在目标区域，从对端 Kafka 拉取 CDC topic 写入本地 Kafka。跨区域只做读取，写入在本地完成，延迟低、可靠性高</td>
+      </tr>
+      <tr>
+        <td><strong>Sync Service</strong></td>
+        <td>1 台</td>
+        <td>Spring Boot 应用，消费本地 Kafka 中来自对端的 CDC topic，解析后写入本地 MySQL</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="highlight-box success">
+    <strong>两个区域合计：</strong>MySQL 2 台 + Kafka 6 台 + Debezium 2 台 + MM2 2 台 + Sync Service 2 台 = <strong>共 14 台服务节点</strong>
+  </div>
+
+  <h3>关键配置推荐</h3>
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">Kafka 集群</div>
+      <table>
+        <tr><th>配置</th><th>推荐值</th></tr>
+        <tr><td>replication.factor</td><td>3（每条消息存 3 份）</td></tr>
+        <tr><td>min.insync.replicas</td><td>2（至少 2 份写成功才算成功）</td></tr>
+        <tr><td>acks</td><td>all（生产者等所有副本确认）</td></tr>
+      </table>
+      <p style="margin-top:8px; font-size:.82rem; color:var(--text-light)">
+        以上配置组合保证：任意 1 台 Kafka 宕机不丢消息、不中断服务。
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-title">MirrorMaker 2</div>
+      <table>
+        <tr><th>配置</th><th>推荐值</th></tr>
+        <tr><td>replication.policy</td><td>IdentityReplicationPolicy（保持原 topic 名）</td></tr>
+        <tr><td>dedicated.mode.enable.internal.rest</td><td>true（Kafka 4.0 必需）</td></tr>
+        <tr><td>refresh.topics.interval.seconds</td><td>10（新 topic 自动发现间隔）</td></tr>
+      </table>
+      <p style="margin-top:8px; font-size:.82rem; color:var(--text-light)">
+        每个区域 1 台 MM2，只负责单方向拉取。两个 MM2 的内部 topic 分别存储在不同 Kafka 集群，天然隔离不冲突。
+      </p>
+    </div>
+  </div>
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">Debezium (Kafka Connect)</div>
+      <table>
+        <tr><th>配置</th><th>推荐值</th></tr>
+        <tr><td>snapshot.mode</td><td>schema_only（不做全量快照）</td></tr>
+        <tr><td>MySQL binlog.format</td><td>ROW（记录完整行数据）</td></tr>
+        <tr><td>MySQL binlog.row.image</td><td>FULL（前后镜像完整）</td></tr>
+      </table>
+      <p style="margin-top:8px; font-size:.82rem; color:var(--text-light)">
+        schema_only 避免首次启动时产生大量历史数据快照事件（op=r），减少初始同步压力。
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-title">Sync Service</div>
+      <table>
+        <tr><th>配置</th><th>推荐值</th></tr>
+        <tr><td>concurrency</td><td>与 topic 分区数对齐</td></tr>
+        <tr><td>ack-mode</td><td>RECORD（逐条确认，保证不漏）</td></tr>
+        <tr><td>priority-region</td><td>NA（冲突时 NA 优先，可配置）</td></tr>
+      </table>
+      <p style="margin-top:8px; font-size:.82rem; color:var(--text-light)">
+        单实例部署，通过 concurrency 参数控制内部消费线程数以提升吞吐量。
+      </p>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="footer">
+  Region Sync Service &copy; 2026 &nbsp;|&nbsp; NA-EU Cross-Region Bidirectional Data Synchronization
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#e8effc',
+      primaryTextColor: '#1f2937',
+      primaryBorderColor: '#1a56db',
+      lineColor: '#6b7280',
+      secondaryColor: '#d1fae5',
+      tertiaryColor: '#fef3c7',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
+    },
+    flowchart: { curve: 'basis', padding: 20 },
+    sequence: { mirrorActors: false }
+  });
+</script>
+</body>
+</html>

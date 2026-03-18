@@ -1,0 +1,175 @@
+# =============================================================================
+# Production-like: NA + EU dual-region with Kafka 4.0 (KRaft) + MirrorMaker 2
+# No ZooKeeper required.
+#
+# 7 containers:
+#   NA: mysql-na, kafka-na, kafka-connect-na
+#   EU: mysql-eu, kafka-eu, kafka-connect-eu
+#   Shared: mm2 (bidirectional)
+# =============================================================================
+
+services:
+
+  # ========================= NA REGION =========================
+
+  mysql-na:
+    image: mysql:8.0
+    container_name: mysql-na
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: apn_na
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+    volumes:
+      - ./docker/init-na.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql-na-data:/var/lib/mysql
+    networks:
+      - region-net
+
+  kafka-na:
+    image: apache/kafka:4.0.0
+    container_name: kafka-na
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-na:9094
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9094,EXTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-na:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    networks:
+      - region-net
+
+  kafka-connect-na:
+    image: debezium/connect:2.5
+    container_name: kafka-connect-na
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka-na
+      - mysql-na
+    environment:
+      BOOTSTRAP_SERVERS: kafka-na:29092
+      GROUP_ID: connect-na
+      CONFIG_STORAGE_TOPIC: _connect_configs_na
+      OFFSET_STORAGE_TOPIC: _connect_offsets_na
+      STATUS_STORAGE_TOPIC: _connect_statuses_na
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    networks:
+      - region-net
+
+  mm2:
+    image: apache/kafka:4.0.0
+    container_name: mm2
+    depends_on:
+      - kafka-na
+      - kafka-eu
+    volumes:
+      - ./docker/mm2.properties:/etc/mm2/mm2.properties:ro
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka clusters to be ready...' &&
+        sleep 15 &&
+        echo 'Starting MirrorMaker 2 (bidirectional NA <-> EU)...' &&
+        /opt/kafka/bin/connect-mirror-maker.sh /etc/mm2/mm2.properties
+      "
+    restart: on-failure
+    networks:
+      - region-net
+
+  # ========================= EU REGION =========================
+
+  mysql-eu:
+    image: mysql:8.0
+    container_name: mysql-eu
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: apn_eu
+    command: >
+      --server-id=2
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+    volumes:
+      - ./docker/init-eu.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql-eu-data:/var/lib/mysql
+    networks:
+      - region-net
+
+  kafka-eu:
+    image: apache/kafka:4.0.0
+    container_name: kafka-eu
+    ports:
+      - "9093:9092"
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 2@kafka-eu:9094
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:9094,EXTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-eu:29092,EXTERNAL://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: RXVLYWZrYUNsdXN0ZXJJZA
+    networks:
+      - region-net
+
+  kafka-connect-eu:
+    image: debezium/connect:2.5
+    container_name: kafka-connect-eu
+    ports:
+      - "8084:8083"
+    depends_on:
+      - kafka-eu
+      - mysql-eu
+    environment:
+      BOOTSTRAP_SERVERS: kafka-eu:29092
+      GROUP_ID: connect-eu
+      CONFIG_STORAGE_TOPIC: _connect_configs_eu
+      OFFSET_STORAGE_TOPIC: _connect_offsets_eu
+      STATUS_STORAGE_TOPIC: _connect_statuses_eu
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    networks:
+      - region-net
+
+
+networks:
+  region-net:
+    driver: bridge
+
+volumes:
+  mysql-na-data:
+  mysql-eu-data:

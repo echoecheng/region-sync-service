@@ -1,0 +1,91 @@
+server:
+  port: 9090
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  kafka:
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      properties:
+        session.timeout.ms: 60000
+        heartbeat.interval.ms: 10000
+        max.poll.interval.ms: 600000
+        max.poll.records: 100
+        metadata.max.age.ms: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.altomni.apn.sync: DEBUG
+    org.apache.kafka: WARN
+
+# ============================================================
+# 通用同步配置（公共部分）
+# 区域特有的配置在 application-na.yml / application-eu.yml 中覆盖
+# ============================================================
+region-sync:
+  priority-region: NA
+  timestamp-column: updated_at
+  primary-key-column: id
+  source-region-column: source_region
+  exclude-columns: []
+
+  # 需要同步的表（100+ 张），每张表对应一个 Kafka CDC topic
+  sync-tables:
+    - talent
+    - talent_contact
+    - talent_experience
+    - talent_education
+    - talent_project
+    - talent_skill
+    - talent_ownership
+    - talent_preference
+    - company
+    - company_contact
+    - shared_job
+    - job
+    - job_candidate
+    - job_activity
+    - job_note
+    - interview
+    - interview_feedback
+    - offer
+    - placement
+    - invoice
+    - client
+    - client_contact
+    - sales_lead
+    - sales_lead_project_relation
+    - notification
+    - user
+    - user_role
+    - user_permission
+    # ... 在此继续添加更多表 ...
+
+  # 特殊表覆盖配置（主键或时间戳字段不同于默认值的表）
+  table-overrides:
+    talent_contact:
+      timestamp-column: last_modified_date
+    talent_experience:
+      timestamp-column: last_modified_date
+    talent_education:
+      timestamp-column: last_modified_date
+    talent_ownership:
+      timestamp-column: last_modified_date

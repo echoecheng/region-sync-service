@@ -1,0 +1,25 @@
+# ============================================================
+# EU 区域部署配置
+# 本地启动: java -jar region-sync-service.jar --spring.profiles.active=eu --server.port=9094
+# ============================================================
+
+server:
+  port: ${SERVER_PORT:9094}
+
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3308}/apn_eu?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root123}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9093}
+    consumer:
+      group-id: region-sync-eu
+
+region-sync:
+  local-region: EU
+  remote-region: NA
+  target-database: apn_eu
+  # 消费来自 NA 的 CDC topic（本地单 Kafka 集群直连；生产环境经 MirrorMaker2 镜像）
+  topic-prefix: "na.apn_na."
