@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MySQL 数据迁移方案</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card: #ffffff;
+    --primary: #1a56db;
+    --primary-light: #e8effc;
+    --accent: #059669;
+    --accent-light: #d1fae5;
+    --warn: #d97706;
+    --warn-light: #fef3c7;
+    --danger: #dc2626;
+    --text: #1f2937;
+    --text-light: #6b7280;
+    --border: #e5e7eb;
+    --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.7;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+
+  .hero {
+    background: linear-gradient(135deg, #0f2b46 0%, #1a56db 50%, #3b82f6 100%);
+    color: #fff; padding: 56px 24px; text-align: center;
+  }
+  .hero h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 10px; }
+  .hero .subtitle { font-size: 1.1rem; opacity: .85; }
+  .hero .meta { margin-top: 16px; font-size: .88rem; opacity: .65; }
+
+  .section { margin-bottom: 48px; }
+  .section h2 {
+    font-size: 1.5rem; font-weight: 700; color: var(--primary);
+    border-bottom: 3px solid var(--primary); padding-bottom: 8px; margin-bottom: 24px;
+  }
+
+  .card {
+    background: var(--card); border-radius: 12px; padding: 28px;
+    box-shadow: var(--shadow); margin-bottom: 24px; border: 1px solid var(--border);
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: .92rem; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--primary-light); font-weight: 600; color: var(--primary); }
+  tr:hover td { background: #f1f5f9; }
+
+  .badge {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-size: .8rem; font-weight: 600;
+  }
+  .badge-1 { background: #e0e7ff; color: #3730a3; }
+  .badge-2 { background: #d1fae5; color: #065f46; }
+  .badge-3 { background: #fef3c7; color: #92400e; }
+
+  .diagram-container {
+    background: var(--card); border-radius: 12px; padding: 24px;
+    box-shadow: var(--shadow); margin: 20px 0; border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .diagram-container .mermaid { display: flex; justify-content: center; }
+  .diagram-label {
+    text-align: center; font-size: .88rem; color: var(--text-light);
+    margin-top: 12px; font-style: italic;
+  }
+
+  .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 768px) { .three-col { grid-template-columns: 1fr; } }
+
+  .type-card {
+    background: var(--card); border-radius: 12px; padding: 24px;
+    box-shadow: var(--shadow); border-top: 4px solid var(--primary);
+    text-align: center;
+  }
+  .type-card.t1 { border-top-color: #6366f1; }
+  .type-card.t2 { border-top-color: #059669; }
+  .type-card.t3 { border-top-color: #d97706; }
+  .type-card h3 { font-size: 1.05rem; margin-bottom: 8px; }
+  .type-card .desc { font-size: .88rem; color: var(--text-light); margin-bottom: 12px; }
+  .type-card .tables { font-size: .85rem; color: var(--text); margin-bottom: 12px; }
+  .type-card .tables code {
+    background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", monospace; font-size: .82em;
+  }
+  .type-card .strategy {
+    font-size: .82rem; font-weight: 600; padding: 6px 12px;
+    border-radius: 8px; display: inline-block;
+  }
+  .type-card.t1 .strategy { background: #e0e7ff; color: #3730a3; }
+  .type-card.t2 .strategy { background: #d1fae5; color: #065f46; }
+  .type-card.t3 .strategy { background: #fef3c7; color: #92400e; }
+
+  .phase-timeline { position: relative; padding-left: 40px; }
+  .phase-timeline::before {
+    content: ''; position: absolute; left: 15px; top: 0; bottom: 0;
+    width: 3px; background: linear-gradient(to bottom, #6366f1, #059669, #d97706);
+    border-radius: 3px;
+  }
+  .phase-item {
+    position: relative; margin-bottom: 32px;
+    background: var(--card); border-radius: 12px; padding: 24px;
+    box-shadow: var(--shadow); border: 1px solid var(--border);
+  }
+  .phase-item::before {
+    content: attr(data-phase);
+    position: absolute; left: -40px; top: 24px;
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: .85rem; color: #fff;
+  }
+  .phase-item:nth-child(1)::before { background: #6366f1; }
+  .phase-item:nth-child(2)::before { background: #059669; }
+  .phase-item:nth-child(3)::before { background: #d97706; }
+  .phase-item h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
+  .phase-item p { font-size: .9rem; color: var(--text-light); margin-bottom: 12px; }
+
+  pre {
+    background: #1e293b; color: #e2e8f0; padding: 18px; border-radius: 10px;
+    overflow-x: auto; font-size: .82rem; line-height: 1.6; margin: 10px 0;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+  code {
+    background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", monospace; font-size: .85em;
+  }
+
+  .highlight-box {
+    padding: 16px 20px; border-radius: 10px; margin: 16px 0; font-size: .92rem;
+  }
+  .highlight-box.info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+  .highlight-box.success { background: var(--accent-light); border-left: 4px solid var(--accent); }
+  .highlight-box.warn { background: var(--warn-light); border-left: 4px solid var(--warn); }
+
+  .compare-table th:first-child { width: 120px; }
+  .compare-table .yes { color: #059669; font-weight: 600; }
+  .compare-table .no { color: #dc2626; font-weight: 600; }
+
+  .footer {
+    text-align: center; padding: 32px; color: var(--text-light);
+    font-size: .85rem; border-top: 1px solid var(--border); margin-top: 40px;
+  }
+
+  @media print {
+    .hero { padding: 30px; }
+    .container { padding: 20px; }
+    .card, .diagram-container, .phase-item, .type-card { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>MySQL 数据迁移方案</h1>
+  <div class="subtitle">NA → EU 初始数据迁移 | MySQL Shell + 分类迁移脚本</div>
+  <div class="meta">Region Sync Service &nbsp;|&nbsp; 数据迁移方案 &nbsp;|&nbsp; v1.0</div>
+</div>
+
+<div class="container">
+
+<!-- ========== 1. 三类表 ========== -->
+<div class="section">
+  <h2>1. 三类表分类</h2>
+
+  <div class="three-col">
+    <div class="type-card t1">
+      <h3><span class="badge badge-1">第一类</span> 独立配置表</h3>
+      <div class="desc">迁移后各自独立，互不影响</div>
+      <div class="tables"><code>列配置表</code> <code>系统设置表</code></div>
+      <div class="strategy">全量复制 → 各自独立</div>
+    </div>
+    <div class="type-card t2">
+      <h3><span class="badge badge-2">第二类</span> 共享表</h3>
+      <div class="desc">双向同步，NA/EU 都可创建更新</div>
+      <div class="tables"><code>job</code> <code>account_business</code> <code>company</code></div>
+      <div class="strategy">全量复制 → 持续双向同步</div>
+    </div>
+    <div class="type-card t3">
+      <h3><span class="badge badge-3">第三类</span> 地域专属表</h3>
+      <div class="desc">按地域拆分，删除对方数据</div>
+      <div class="tables"><code>talent</code> <code>候选人流程相关表</code></div>
+      <div class="strategy">全量复制 → 按地域筛选删除</div>
+    </div>
+  </div>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+mindmap
+  root["所有业务表"]
+    cat1["第一类: 独立配置表"]
+      t1["列配置表、系统设置表"]
+      s1["全量复制 → 各自独立"]
+    cat2["第二类: 共享表"]
+      t2["job、account_business、company"]
+      s2["全量复制 → 持续双向同步"]
+    cat3["第三类: 地域专属表"]
+      t3["talent、候选人流程相关表"]
+      s3["全量复制 → 按地域筛选删除"]
+    </div>
+    <div class="diagram-label">图 1：三类表分类与迁移策略</div>
+  </div>
+</div>
+
+<!-- ========== 2. 迁移三阶段 ========== -->
+<div class="section">
+  <h2>2. 迁移三阶段</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TB
+  subgraph phase1 ["Phase 1: 全量迁移（所有表）"]
+    A1["NA MySQL"] -->|"mysqlsh dump-instance\n8线程并行 + zstd压缩"| A2["备份文件"]
+    A2 -->|"mysqlsh load-dump\n8线程并行导入"| A3["EU MySQL"]
+  end
+
+  subgraph phase2 ["Phase 2: 地域专属表数据清理"]
+    B1["第三类表增加\ndata_region 字段"] --> B2["按业务规则\n标记 NA/EU 归属"]
+    B2 --> B3["EU 库删除 NA 数据\nNA 库删除 EU 数据"]
+  end
+
+  subgraph phase3 ["Phase 3: 数据校验"]
+    C1["独立配置表:\n两端结构一致即可"] --> C2["共享表:\nchecksum 对比"]
+    C2 --> C3["专属表:\nNA + EU = 迁移前总数"]
+  end
+
+  phase1 --> phase2 --> phase3
+    </div>
+    <div class="diagram-label">图 2：迁移三阶段全流程</div>
+  </div>
+
+  <div class="phase-timeline">
+    <div class="phase-item" data-phase="1">
+      <h3>Phase 1：全量迁移（所有表）</h3>
+      <p>使用 MySQL Shell 将 NA 库全量导出，传输到 EU 端后并行导入。覆盖所有三类表。</p>
+      <pre><code># NA 端导出
+mysqlsh -- util dump-instance /backup/full_dump \
+  --threads=8 \
+  --compression=zstd \
+  --excludeSchemas=["mysql","sys","information_schema","performance_schema"]
+
+# EU 端导入
+mysqlsh -- util load-dump /backup/full_dump \
+  --threads=8 \
+  --resetProgress \
+  --ignoreExistingObjects=true</code></pre>
+    </div>
+
+    <div class="phase-item" data-phase="2">
+      <h3>Phase 2：地域专属表数据清理</h3>
+      <p>在第三类表中增加 <code>data_region</code> 字段，按业务规则标记后，各端删除不属于本区域的数据。</p>
+      <pre><code>-- 1. 增加地域标识字段
+ALTER TABLE talent ADD COLUMN data_region VARCHAR(4) DEFAULT 'NA';
+
+-- 2. 按业务规则标记数据归属
+UPDATE talent SET data_region = 'EU' WHERE &lt;EU识别条件&gt;;
+
+-- 3. 各端删除对方数据
+DELETE FROM talent WHERE data_region = 'NA';  -- EU 库执行
+DELETE FROM talent WHERE data_region = 'EU';  -- NA 库执行</code></pre>
+    </div>
+
+    <div class="phase-item" data-phase="3">
+      <h3>Phase 3：数据校验</h3>
+      <p>分类验证迁移结果的正确性和完整性。</p>
+      <table>
+        <tr><th>校验维度</th><th>预期结果</th></tr>
+        <tr><td><span class="badge badge-1">独立配置表</span></td><td>两端表结构一致</td></tr>
+        <tr><td><span class="badge badge-2">共享表</span></td><td>checksum 对比，两端数据完全一致</td></tr>
+        <tr><td><span class="badge badge-3">专属表</span></td><td>NA 记录数 + EU 记录数 = 迁移前总数</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 3. 技术选型 ========== -->
+<div class="section">
+  <h2>3. 技术选型：MySQL Shell vs mysqldump</h2>
+
+  <div class="card">
+    <table class="compare-table">
+      <tr><th>维度</th><th>MySQL Shell</th><th>mysqldump</th></tr>
+      <tr>
+        <td><strong>导出方式</strong></td>
+        <td class="yes">多线程并行（8+ 线程）</td>
+        <td class="no">单线程串行</td>
+      </tr>
+      <tr>
+        <td><strong>压缩</strong></td>
+        <td class="yes">原生 zstd（体积降 70%+）</td>
+        <td class="no">需外部 gzip</td>
+      </tr>
+      <tr>
+        <td><strong>断点续传</strong></td>
+        <td class="yes">支持</td>
+        <td class="no">不支持</td>
+      </tr>
+      <tr>
+        <td><strong>导入速度</strong></td>
+        <td class="yes">多线程 LOAD DATA</td>
+        <td class="no">单线程逐条 INSERT</td>
+      </tr>
+      <tr>
+        <td><strong>MySQL 8.0+</strong></td>
+        <td class="yes">原生支持</td>
+        <td>支持</td>
+      </tr>
+    </table>
+
+    <div class="highlight-box success">
+      <strong>结论：</strong>MySQL Shell 在大数据量场景下速度提升 5~10 倍，且支持断点续传，是生产级迁移的推荐工具。
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="footer">
+  Region Sync Service &copy; 2026 &nbsp;|&nbsp; MySQL 数据迁移方案
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#e8effc',
+      primaryTextColor: '#1f2937',
+      primaryBorderColor: '#1a56db',
+      lineColor: '#6b7280',
+      secondaryColor: '#d1fae5',
+      tertiaryColor: '#fef3c7',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
+    },
+    flowchart: { curve: 'basis', padding: 20 }
+  });
+</script>
+</body>
+</html>

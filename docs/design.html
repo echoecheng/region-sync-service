@@ -177,11 +177,9 @@
     <li><a href="#s5">MirrorMaker 2 跨区域镜像</a></li>
     <li><a href="#s6">冲突解决策略</a></li>
     <li><a href="#s7">防回环机制</a></li>
-    <li><a href="#s8">同步表与配置</a></li>
-    <li><a href="#s9">端口与服务映射</a></li>
-    <li><a href="#s10">运维与监控</a></li>
-    <li><a href="#s11">技术栈总览</a></li>
-    <li><a href="#s12">生产部署架构</a></li>
+    <li><a href="#s8">端口与服务映射</a></li>
+    <li><a href="#s9">运维与监控</a></li>
+    <li><a href="#s10">生产部署架构</a></li>
   </ol>
 </div>
 
@@ -260,8 +258,8 @@ flowchart TB
       <p>各区域的主数据库，开启 ROW 格式 binlog + GTID，为 CDC 提供数据源。</p>
     </div>
     <div class="comp-item">
-      <h4>Debezium Connector</h4>
-      <p>部署在 Kafka Connect 上，实时捕获 MySQL binlog 变更，写入本区域 Kafka。</p>
+      <h4>Kafka Connect (Debezium)</h4>
+      <p>每个区域部署一个 Connect 实例，运行 Debezium Source Connector，实时捕获 MySQL binlog 变更，写入本区域 Kafka。</p>
     </div>
     <div class="comp-item">
       <h4>Kafka NA / EU</h4>
@@ -275,10 +273,6 @@ flowchart TB
       <h4>Sync Service</h4>
       <p>Spring Boot 应用，消费本地 Kafka 中来自对端的 CDC topic，写入本地 MySQL。</p>
     </div>
-    <div class="comp-item">
-      <h4>Kafka Connect</h4>
-      <p>每个区域部署一个 Connect 实例，运行本区域的 Debezium Source Connector。</p>
-    </div>
   </div>
 </div>
 
@@ -287,17 +281,17 @@ flowchart TB
   <h2>4. 数据流详解</h2>
 
   <div class="card">
-    <div class="card-title">场景：NA 的一条 talent 记录变更同步到 EU</div>
+    <div class="card-title">场景：NA 的一条 company 记录变更同步到 EU</div>
     <div class="flow-steps">
-      <div class="flow-step"><strong>业务写入</strong> — NA 业务应用修改 <code>apn_na.talent</code> 表中 id=100 的记录</div>
+      <div class="flow-step"><strong>业务写入</strong> — NA 业务应用修改 <code>apn_na.company</code> 表中 id=100 的记录</div>
       <div class="flow-step"><strong>Binlog 捕获</strong> — MySQL NA 产生 binlog 事件 (ROW 格式, FULL image)</div>
-      <div class="flow-step"><strong>Debezium CDC</strong> — <code>na-source-connector</code> 读取 binlog，将变更事件写入 NA Kafka topic <code>na.apn_na.talent</code></div>
-      <div class="flow-step"><strong>MM2 镜像</strong> — 部署在 EU 的 MirrorMaker 2 从 NA Kafka 拉取 <code>na.apn_na.talent</code>，镜像到 EU Kafka（保持同名 topic）</div>
-      <div class="flow-step"><strong>Sync 消费</strong> — EU 的 <code>sync-service-eu</code> 从 EU Kafka 消费 <code>na.apn_na.talent</code> topic</div>
+      <div class="flow-step"><strong>Debezium CDC</strong> — <code>na-source-connector</code> 读取 binlog，将变更事件写入 NA Kafka topic <code>na.apn_na.company</code></div>
+      <div class="flow-step"><strong>MM2 镜像</strong> — 部署在 EU 的 MirrorMaker 2 从 NA Kafka 拉取 <code>na.apn_na.company</code>，镜像到 EU Kafka（保持同名 topic）</div>
+      <div class="flow-step"><strong>Sync 消费</strong> — EU 的 <code>sync-service-eu</code> 从 EU Kafka 消费 <code>na.apn_na.company</code> topic</div>
       <div class="flow-step"><strong>解析 CDC</strong> — <code>GenericCdcConsumer</code> 解析 Debezium envelope，提取 op 和 after 数据</div>
       <div class="flow-step"><strong>防回环检查</strong> — 检查 <code>source_region</code> 字段，确认非本地区域（EU）产生的数据</div>
       <div class="flow-step"><strong>冲突检测</strong> — 若为 UPDATE，比较本地与远端 <code>updated_at</code> 时间戳</div>
-      <div class="flow-step"><strong>写入本地</strong> — 通过 <code>INSERT ... ON DUPLICATE KEY UPDATE</code> 写入 <code>apn_eu.talent</code></div>
+      <div class="flow-step"><strong>写入本地</strong> — 通过 <code>INSERT ... ON DUPLICATE KEY UPDATE</code> 写入 <code>apn_eu.company</code></div>
     </div>
   </div>
 
@@ -313,17 +307,17 @@ sequenceDiagram
     participant Sync as Sync Service EU
     participant DB_EU as MySQL EU
 
-    App->>DB_NA: UPDATE talent SET name='...'
+    App->>DB_NA: UPDATE company SET name='...'
     DB_NA-->>Deb: binlog event
-    Deb->>K_NA: na.apn_na.talent (op=u)
+    Deb->>K_NA: na.apn_na.company (op=u)
     MM2->>K_NA: poll topics
-    K_NA-->>MM2: na.apn_na.talent message
-    MM2->>K_EU: mirror na.apn_na.talent
-    Sync->>K_EU: consume na.apn_na.talent
+    K_NA-->>MM2: na.apn_na.company message
+    MM2->>K_EU: mirror na.apn_na.company
+    Sync->>K_EU: consume na.apn_na.company
     K_EU-->>Sync: CDC event (op=u)
     Note over Sync: Anti-loop check
     Note over Sync: Conflict resolution
-    Sync->>DB_EU: UPSERT into apn_eu.talent
+    Sync->>DB_EU: UPSERT into apn_eu.company
     </div>
     <div class="diagram-label">图 2：NA 变更同步到 EU 的时序图</div>
   </div>
@@ -369,7 +363,7 @@ sequenceDiagram
 
   <div class="highlight-box warn">
     <strong>IdentityReplicationPolicy</strong><br>
-    使用此策略后，镜像 topic 保持原名（如 <code>na.apn_na.talent</code>），Sync Service 的 topic-prefix 配置无需因 MM2 而改动。
+    使用此策略后，镜像 topic 保持原名（如 <code>na.apn_na.company</code>），Sync Service 的 topic-prefix 配置无需因 MM2 而改动。
   </div>
 
   <h3>生产环境 vs 本地开发部署策略</h3>
@@ -461,7 +455,7 @@ flowchart TD
       <div class="mermaid">
 flowchart LR
     subgraph NoLoop ["防回环示意"]
-        NA_Write["NA 修改 talent\nsource_region=NA"] -->|"CDC"| EU_Sync["EU Sync Service"]
+        NA_Write["NA 修改 company\nsource_region=NA"] -->|"CDC"| EU_Sync["EU Sync Service"]
         EU_Sync -->|"写入 EU DB\nsource_region=NA"| EU_DB["EU MySQL"]
         EU_DB -->|"CDC 捕获"| EU_CDC["EU Debezium"]
         EU_CDC -->|"source_region=NA"| NA_Sync["NA Sync Service"]
@@ -483,55 +477,9 @@ flowchart LR
   </div>
 </div>
 
-<!-- ==================== 8. 同步表 ==================== -->
+<!-- ==================== 8. 端口映射 ==================== -->
 <div class="section" id="s8">
-  <h2>8. 同步表与配置</h2>
-
-  <div class="card">
-    <div class="card-title">当前同步的表（28 张）</div>
-    <table>
-      <tr><th>模块</th><th>表名</th><th>时间戳字段</th></tr>
-      <tr><td rowspan="8">Talent</td><td>talent</td><td>updated_at</td></tr>
-      <tr><td>talent_contact</td><td>last_modified_date</td></tr>
-      <tr><td>talent_experience</td><td>last_modified_date</td></tr>
-      <tr><td>talent_education</td><td>last_modified_date</td></tr>
-      <tr><td>talent_project</td><td>updated_at</td></tr>
-      <tr><td>talent_skill</td><td>updated_at</td></tr>
-      <tr><td>talent_ownership</td><td>last_modified_date</td></tr>
-      <tr><td>talent_preference</td><td>updated_at</td></tr>
-      <tr><td rowspan="2">Company</td><td>company</td><td>updated_at</td></tr>
-      <tr><td>company_contact</td><td>updated_at</td></tr>
-      <tr><td rowspan="5">Job</td><td>shared_job</td><td>updated_at</td></tr>
-      <tr><td>job</td><td>updated_at</td></tr>
-      <tr><td>job_candidate</td><td>updated_at</td></tr>
-      <tr><td>job_activity</td><td>updated_at</td></tr>
-      <tr><td>job_note</td><td>updated_at</td></tr>
-      <tr><td rowspan="3">Interview</td><td>interview</td><td>updated_at</td></tr>
-      <tr><td>interview_feedback</td><td>updated_at</td></tr>
-      <tr><td>offer</td><td>updated_at</td></tr>
-      <tr><td rowspan="2">Placement</td><td>placement</td><td>updated_at</td></tr>
-      <tr><td>invoice</td><td>updated_at</td></tr>
-      <tr><td rowspan="3">Client/Sales</td><td>client</td><td>updated_at</td></tr>
-      <tr><td>client_contact</td><td>updated_at</td></tr>
-      <tr><td>sales_lead</td><td>updated_at</td></tr>
-      <tr><td></td><td>sales_lead_project_relation</td><td>updated_at</td></tr>
-      <tr><td rowspan="4">System</td><td>notification</td><td>updated_at</td></tr>
-      <tr><td>user</td><td>updated_at</td></tr>
-      <tr><td>user_role</td><td>updated_at</td></tr>
-      <tr><td>user_permission</td><td>updated_at</td></tr>
-    </table>
-
-    <div class="highlight-box info">
-      <strong>新增同步表只需 2 步：</strong><br>
-      1. 确保表有 <code>id</code>、<code>source_region</code>、<code>updated_at</code> 字段<br>
-      2. 在 <code>application.yml</code> 的 <code>sync-tables</code> 列表中添加表名
-    </div>
-  </div>
-</div>
-
-<!-- ==================== 9. 端口映射 ==================== -->
-<div class="section" id="s9">
-  <h2>9. 端口与服务映射</h2>
+  <h2>8. 端口与服务映射</h2>
 
   <h3>本地开发环境（Docker Compose）</h3>
   <div class="card">
@@ -564,9 +512,9 @@ flowchart LR
   </div>
 </div>
 
-<!-- ==================== 10. 运维监控 ==================== -->
-<div class="section" id="s10">
-  <h2>10. 运维与监控</h2>
+<!-- ==================== 9. 运维监控 ==================== -->
+<div class="section" id="s9">
+  <h2>9. 运维与监控</h2>
 
   <div class="two-col">
     <div class="card">
@@ -598,87 +546,9 @@ GET http://localhost:8084/connectors/eu-source-connector/status</code></pre>
   </div>
 </div>
 
-<!-- ==================== 11. 技术栈 ==================== -->
-<div class="section" id="s11">
-  <h2>11. 技术栈总览</h2>
-
-  <div class="card">
-    <table>
-      <tr><th>层</th><th>技术</th><th>版本</th><th>用途</th></tr>
-      <tr>
-        <td>应用</td>
-        <td><span class="badge badge-tech">Spring Boot</span></td>
-        <td>2.7.18</td>
-        <td>Sync Service 框架</td>
-      </tr>
-      <tr>
-        <td></td>
-        <td><span class="badge badge-tech">Spring Kafka</span></td>
-        <td>2.8.x</td>
-        <td>Kafka 消费者</td>
-      </tr>
-      <tr>
-        <td></td>
-        <td><span class="badge badge-tech">Spring JDBC</span></td>
-        <td>—</td>
-        <td>数据库操作</td>
-      </tr>
-      <tr>
-        <td>CDC</td>
-        <td><span class="badge badge-tech">Debezium</span></td>
-        <td>2.5</td>
-        <td>MySQL binlog 变更捕获（运行于 Kafka Connect）</td>
-      </tr>
-      <tr>
-        <td>消息</td>
-        <td><span class="badge badge-tech">Apache Kafka</span></td>
-        <td>4.0.0</td>
-        <td>事件流平台（KRaft 模式，无 ZooKeeper）</td>
-      </tr>
-      <tr>
-        <td>镜像</td>
-        <td><span class="badge badge-mm2">MirrorMaker 2</span></td>
-        <td>4.0.0</td>
-        <td>跨区域 topic 双向镜像</td>
-      </tr>
-      <tr>
-        <td>数据库</td>
-        <td><span class="badge badge-tech">MySQL</span></td>
-        <td>8.0</td>
-        <td>业务数据存储（ROW binlog + GTID）</td>
-      </tr>
-      <tr>
-        <td>运行时</td>
-        <td><span class="badge badge-tech">Java</span></td>
-        <td>17</td>
-        <td>JDK (Eclipse Temurin)</td>
-      </tr>
-      <tr>
-        <td>构建</td>
-        <td><span class="badge badge-tech">Maven</span></td>
-        <td>3.9</td>
-        <td>项目构建</td>
-      </tr>
-      <tr>
-        <td>容器</td>
-        <td><span class="badge badge-tech">Docker Compose</span></td>
-        <td>v2</td>
-        <td>本地开发环境编排</td>
-      </tr>
-    </table>
-
-    <div class="highlight-box success" style="margin-top:16px;">
-      <strong>Kafka 4.0 亮点：</strong><br>
-      ✓ KRaft 模式 — 移除 ZooKeeper 依赖，减少运维组件<br>
-      ✓ 更快的 controller 故障切换（秒级 vs ZK 模式的分钟级）<br>
-      ✓ MM2 dedicated mode 支持内部 REST 通信（<code>dedicated.mode.enable.internal.rest=true</code>）
-    </div>
-  </div>
-</div>
-
-<!-- ==================== 12. 生产部署架构 ==================== -->
-<div class="section" id="s12">
-  <h2>12. 生产部署架构</h2>
+<!-- ==================== 10. 生产部署架构 ==================== -->
+<div class="section" id="s10">
+  <h2>10. 生产部署架构</h2>
 
   <p>整体架构见第 2 节。生产环境采用 <strong>Kafka 4.0 KRaft 模式</strong>，无需 ZooKeeper。NA 和 EU 两个区域各部署一套完全对称的组件。</p>
 

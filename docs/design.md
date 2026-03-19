@@ -15,11 +15,9 @@
 5. [MirrorMaker 2 跨区域镜像](#5-mirrormaker-2-跨区域镜像)
 6. [冲突解决策略](#6-冲突解决策略)
 7. [防回环机制](#7-防回环机制)
-8. [同步表与配置](#8-同步表与配置)
-9. [端口与服务映射](#9-端口与服务映射)
-10. [运维与监控](#10-运维与监控)
-11. [技术栈总览](#11-技术栈总览)
-12. [生产部署架构](#12-生产部署架构)
+8. [端口与服务映射](#8-端口与服务映射)
+9. [运维与监控](#9-运维与监控)
+10. [生产部署架构](#10-生产部署架构)
 
 ---
 
@@ -83,27 +81,26 @@ flowchart LR
 ## 3. 组件清单与职责
 
 - **MySQL NA / EU** — 各区域的主数据库，开启 ROW 格式 binlog + GTID，为 CDC 提供数据源。
-- **Debezium Connector** — 部署在 Kafka Connect 上，实时捕获 MySQL binlog 变更，写入本区域 Kafka。
+- **Kafka Connect (Debezium)** — 每个区域部署一个 Connect 实例，运行 Debezium Source Connector，实时捕获 MySQL binlog 变更，写入本区域 Kafka。
 - **Kafka NA / EU** — 各区域独立 Kafka 集群，存储本地 CDC topic 和从对端镜像来的 topic。
 - **MirrorMaker 2** — 跨区域 topic 镜像。部署在 **目标区域**，从远端拉取 CDC topic 到本地 Kafka。
 - **Sync Service** — Spring Boot 应用，消费本地 Kafka 中来自对端的 CDC topic，写入本地 MySQL。
-- **Kafka Connect** — 每个区域部署一个 Connect 实例，运行本区域的 Debezium Source Connector。
 
 ---
 
 ## 4. 数据流详解
 
-### 场景：NA 的一条 talent 记录变更同步到 EU
+### 场景：NA 的一条 company 记录变更同步到 EU
 
-1. **业务写入** — NA 业务应用修改 `apn_na.talent` 表中 id=100 的记录
+1. **业务写入** — NA 业务应用修改 `apn_na.company` 表中 id=100 的记录
 2. **Binlog 捕获** — MySQL NA 产生 binlog 事件 (ROW 格式, FULL image)
-3. **Debezium CDC** — `na-source-connector` 读取 binlog，将变更事件写入 NA Kafka topic `na.apn_na.talent`
-4. **MM2 镜像** — 部署在 EU 的 MirrorMaker 2 从 NA Kafka 拉取 `na.apn_na.talent`，镜像到 EU Kafka（保持同名 topic）
-5. **Sync 消费** — EU 的 `sync-service-eu` 从 EU Kafka 消费 `na.apn_na.talent` topic
+3. **Debezium CDC** — `na-source-connector` 读取 binlog，将变更事件写入 NA Kafka topic `na.apn_na.company`
+4. **MM2 镜像** — 部署在 EU 的 MirrorMaker 2 从 NA Kafka 拉取 `na.apn_na.company`，镜像到 EU Kafka（保持同名 topic）
+5. **Sync 消费** — EU 的 `sync-service-eu` 从 EU Kafka 消费 `na.apn_na.company` topic
 6. **解析 CDC** — `GenericCdcConsumer` 解析 Debezium envelope，提取 op 和 after 数据
 7. **防回环检查** — 检查 `source_region` 字段，确认非本地区域（EU）产生的数据
 8. **冲突检测** — 若为 UPDATE，比较本地与远端 `updated_at` 时间戳
-9. **写入本地** — 通过 `INSERT ... ON DUPLICATE KEY UPDATE` 写入 `apn_eu.talent`
+9. **写入本地** — 通过 `INSERT ... ON DUPLICATE KEY UPDATE` 写入 `apn_eu.company`
 
 ```mermaid
 sequenceDiagram
@@ -116,9 +113,9 @@ sequenceDiagram
     participant Sync as Sync Service EU
     participant DB_EU as MySQL EU
 
-    App ->> DB_NA: UPDATE talent
+    App ->> DB_NA: UPDATE company
     DB_NA -->> Deb: binlog event
-    Deb ->> K_NA: na.apn_na.talent
+    Deb ->> K_NA: na.apn_na.company
     MM2 ->> K_NA: poll topics
     K_NA -->> MM2: message
     MM2 ->> K_EU: mirror topic
@@ -126,7 +123,7 @@ sequenceDiagram
     K_EU -->> Sync: CDC event
     Note over Sync: Anti-loop check
     Note over Sync: Conflict resolution
-    Sync ->> DB_EU: UPSERT apn_eu.talent
+    Sync ->> DB_EU: UPSERT apn_eu.company
 ```
 
 *图 2：NA 变更同步到 EU 的时序图*
@@ -161,7 +158,7 @@ sequenceDiagram
 > 写入本地 Kafka 延迟低、可靠性高；跨区域网络只用于拉取（读），写入（写）完全在本地完成。网络中断时本地 Kafka 不受影响，恢复后 MM2 自动从上次 offset 追赶。
 
 > **IdentityReplicationPolicy**
-> 使用此策略后，镜像 topic 保持原名（如 `na.apn_na.talent`），Sync Service 的 topic-prefix 配置无需因 MM2 而改动。
+> 使用此策略后，镜像 topic 保持原名（如 `na.apn_na.company`），Sync Service 的 topic-prefix 配置无需因 MM2 而改动。
 
 ### 生产环境 vs 本地开发部署策略
 
@@ -218,7 +215,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A[NA修改talent, source_region=NA] -->|CDC| B[EU Sync Service]
+    A[NA修改company, source_region=NA] -->|CDC| B[EU Sync Service]
     B -->|写入EU DB, 保持source_region=NA| C[EU MySQL]
     C -->|CDC捕获| D[EU Debezium]
     D -->|source_region=NA| E[NA Sync Service]
@@ -239,48 +236,7 @@ flowchart LR
 
 ---
 
-## 8. 同步表与配置
-
-### 当前同步的表（28 张）
-
-| 模块 | 表名 | 时间戳字段 |
-|------|------|-----------|
-| Talent | talent | updated_at |
-| | talent_contact | last_modified_date |
-| | talent_experience | last_modified_date |
-| | talent_education | last_modified_date |
-| | talent_project | updated_at |
-| | talent_skill | updated_at |
-| | talent_ownership | last_modified_date |
-| | talent_preference | updated_at |
-| Company | company | updated_at |
-| | company_contact | updated_at |
-| Job | shared_job | updated_at |
-| | job | updated_at |
-| | job_candidate | updated_at |
-| | job_activity | updated_at |
-| | job_note | updated_at |
-| Interview | interview | updated_at |
-| | interview_feedback | updated_at |
-| | offer | updated_at |
-| Placement | placement | updated_at |
-| | invoice | updated_at |
-| Client/Sales | client | updated_at |
-| | client_contact | updated_at |
-| | sales_lead | updated_at |
-| | sales_lead_project_relation | updated_at |
-| System | notification | updated_at |
-| | user | updated_at |
-| | user_role | updated_at |
-| | user_permission | updated_at |
-
-> **新增同步表只需 2 步：**
-> 1. 确保表有 `id`、`source_region`、`updated_at` 字段
-> 2. 在 `application.yml` 的 `sync-tables` 列表中添加表名
-
----
-
-## 9. 端口与服务映射
+## 8. 端口与服务映射
 
 ### 本地开发环境（Docker Compose）
 
@@ -307,7 +263,7 @@ flowchart LR
 
 ---
 
-## 10. 运维与监控
+## 9. 运维与监控
 
 ### 健康检查
 
@@ -336,29 +292,7 @@ GET http://localhost:8084/connectors/eu-source-connector/status
 
 ---
 
-## 11. 技术栈总览
-
-| 层 | 技术 | 版本 | 用途 |
-|----|------|------|------|
-| 应用 | Spring Boot | 2.7.18 | Sync Service 框架 |
-| | Spring Kafka | 2.8.x | Kafka 消费者 |
-| | Spring JDBC | — | 数据库操作 |
-| CDC | Debezium | 2.5 | MySQL binlog 变更捕获（运行于 Kafka Connect） |
-| 消息 | Apache Kafka | 4.0.0 | 事件流平台（KRaft 模式，无 ZooKeeper） |
-| 镜像 | MirrorMaker 2 | 4.0.0 | 跨区域 topic 双向镜像 |
-| 数据库 | MySQL | 8.0 | 业务数据存储（ROW binlog + GTID） |
-| 运行时 | Java | 17 | JDK (Eclipse Temurin) |
-| 构建 | Maven | 3.9 | 项目构建 |
-| 容器 | Docker Compose | v2 | 本地开发环境编排 |
-
-**Kafka 4.0 亮点：**
-- KRaft 模式 — 移除 ZooKeeper 依赖，减少运维组件
-- 更快的 controller 故障切换（秒级 vs ZK 模式的分钟级）
-- MM2 dedicated mode 支持内部 REST 通信（`dedicated.mode.enable.internal.rest=true`）
-
----
-
-## 12. 生产部署架构
+## 10. 生产部署架构
 
 整体架构见第 2 节。生产环境采用 **Kafka 4.0 KRaft 模式**，无需 ZooKeeper。NA 和 EU 两个区域各部署一套完全对称的组件。
 
