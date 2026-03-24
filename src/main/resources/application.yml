@@ -8,6 +8,7 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       connection-timeout: 30000
+      connection-init-sql: "SET sql_log_bin = 0"
 
   kafka:
     consumer:

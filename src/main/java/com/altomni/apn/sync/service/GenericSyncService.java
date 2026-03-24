@@ -6,6 +6,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
 import java.sql.Timestamp;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -20,6 +21,20 @@ public class GenericSyncService {
     public GenericSyncService(JdbcTemplate jdbcTemplate, RegionSyncProperties syncProperties) {
         this.jdbcTemplate = jdbcTemplate;
         this.syncProperties = syncProperties;
+    }
+
+    @PostConstruct
+    public void verifySqlLogBinDisabled() {
+        try {
+            Integer sqlLogBin = jdbcTemplate.queryForObject("SELECT @@session.sql_log_bin", Integer.class);
+            log.info("[AntiLoop] sql_log_bin = {} (expected 0 to prevent loop events)", sqlLogBin);
+            if (sqlLogBin != null && sqlLogBin != 0) {
+                log.warn("[AntiLoop] sql_log_bin is NOT 0! Sync writes will still produce binlog events. " +
+                        "Ensure HikariCP connection-init-sql is set to 'SET sql_log_bin = 0'");
+            }
+        } catch (Exception e) {
+            log.warn("[AntiLoop] Failed to verify sql_log_bin status: {}", e.getMessage());
+        }
     }
 
     @SuppressWarnings("unchecked")
