@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 import java.sql.Timestamp;
@@ -26,33 +27,34 @@ public class GenericSyncService {
     @PostConstruct
     public void verifySqlLogBinDisabled() {
         try {
-            Integer sqlLogBin = jdbcTemplate.queryForObject("SELECT @@session.sql_log_bin", Integer.class);
-            log.info("[AntiLoop] sql_log_bin = {} (expected 0 to prevent loop events)", sqlLogBin);
-            if (sqlLogBin != null && sqlLogBin != 0) {
-                log.warn("[AntiLoop] sql_log_bin is NOT 0! Sync writes will still produce binlog events. " +
-                        "Ensure HikariCP connection-init-sql is set to 'SET sql_log_bin = 0'");
-            }
+            jdbcTemplate.execute("SET sql_log_bin = 0");
+            log.info("[AntiLoop] sql_log_bin = 0 verified at startup");
         } catch (Exception e) {
-            log.warn("[AntiLoop] Failed to verify sql_log_bin status: {}", e.getMessage());
+            log.error("[AntiLoop] Cannot SET sql_log_bin = 0. Sync writes will produce binlog events and may cause loops! {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 在当前事务连接上强制关闭 binlog，防止同步写入被 CDC 再次捕获导致回环。
+     * 如果设置失败则抛出异常，中止本次同步操作。
+     */
+    private void ensureSqlLogBinDisabled() {
+        try {
+            jdbcTemplate.execute("SET sql_log_bin = 0");
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to SET sql_log_bin = 0, aborting sync to prevent CDC loop", e);
         }
     }
 
     @SuppressWarnings("unchecked")
+    @Transactional
     public void handleUpsert(Map<String, Object> envelope, String tableName, String op) {
+        ensureSqlLogBinDisabled();
+
         Map<String, Object> after = (Map<String, Object>) envelope.get("after");
         if (after == null) {
             log.warn("[{}] No 'after' field in {} event", tableName, op);
-            return;
-        }
-
-        String srcRegionCol = syncProperties.getSourceRegionColumn(tableName);
-        String sourceRegion = after.containsKey(srcRegionCol) ? String.valueOf(after.get(srcRegionCol)) : null;
-
-        // 防回环：该记录来源于本地区域，跳过
-        if (syncProperties.getLocalRegion().equalsIgnoreCase(sourceRegion)) {
-            log.debug("[{}] Anti-loop: id={}, source_region={} == localRegion={}, skip",
-                    tableName, after.get(syncProperties.getPrimaryKeyColumn(tableName)),
-                    sourceRegion, syncProperties.getLocalRegion());
             return;
         }
 
@@ -77,18 +79,13 @@ public class GenericSyncService {
     }
 
     @SuppressWarnings("unchecked")
+    @Transactional
     public void handleDelete(Map<String, Object> envelope, String tableName) {
+        ensureSqlLogBinDisabled();
+
         Map<String, Object> before = (Map<String, Object>) envelope.get("before");
         if (before == null) {
             log.warn("[{}] No 'before' field in delete event", tableName);
-            return;
-        }
-
-        String srcRegionCol = syncProperties.getSourceRegionColumn(tableName);
-        String sourceRegion = before.containsKey(srcRegionCol) ? String.valueOf(before.get(srcRegionCol)) : null;
-
-        if (syncProperties.getLocalRegion().equalsIgnoreCase(sourceRegion)) {
-            log.debug("[{}] Anti-loop: skip delete, id={}", tableName, before.get(syncProperties.getPrimaryKeyColumn(tableName)));
             return;
         }
 

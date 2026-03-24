@@ -55,11 +55,6 @@ public class RegionSyncProperties {
     private String primaryKeyColumn = "id";
 
     /**
-     * 来源区域标记字段名（用于防回环）
-     */
-    private String sourceRegionColumn = "source_region";
-
-    /**
      * 全局排除的字段列表（不参与同步写入）
      */
     private List<String> excludeColumns = List.of();
@@ -73,7 +68,6 @@ public class RegionSyncProperties {
     public static class TableOverride {
         private String primaryKeyColumn;
         private String timestampColumn;
-        private String sourceRegionColumn;
         private List<String> excludeColumns;
     }
 
@@ -87,12 +81,6 @@ public class RegionSyncProperties {
         TableOverride override = tableOverrides.get(tableName);
         return (override != null && override.getTimestampColumn() != null)
                 ? override.getTimestampColumn() : timestampColumn;
-    }
-
-    public String getSourceRegionColumn(String tableName) {
-        TableOverride override = tableOverrides.get(tableName);
-        return (override != null && override.getSourceRegionColumn() != null)
-                ? override.getSourceRegionColumn() : sourceRegionColumn;
     }
 
     public List<String> getExcludeColumns(String tableName) {

@@ -45,7 +45,6 @@ region-sync:
   priority-region: NA
   timestamp-column: updated_at
   primary-key-column: id
-  source-region-column: source_region
   exclude-columns: []
 
   # 需要同步的表（100+ 张），每张表对应一个 Kafka CDC topic
